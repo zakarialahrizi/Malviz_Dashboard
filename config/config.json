@@ -1,0 +1,12 @@
+{
+  "confidence_threshold": 0.90,
+  "logs_folder": "data/",
+  "colors": {
+    "primary": "#005DA1",
+    "secondary": "#3B8B85",
+    "malware": "#C0392B",
+    "benign": "#27AE60",
+    "uncertain": "#E67E22",
+    "chart_bg": "#0E1117"
+  }
+}

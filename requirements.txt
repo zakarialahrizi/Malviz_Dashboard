@@ -1,0 +1,15 @@
+# Interface web
+streamlit>=1.35
+
+# Données et graphiques
+pandas>=2.0
+plotly>=5.18
+
+# Dépendances du scanner (scanner.py)
+onnxruntime>=1.18
+numpy>=1.24
+Pillow>=10.0
+scikit-learn>=1.3
+scikit-image>=0.21
+scipy>=1.11
+joblib>=1.3
