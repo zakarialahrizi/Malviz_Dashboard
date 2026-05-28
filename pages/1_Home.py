@@ -75,7 +75,7 @@ threshold = config.get("confidence_threshold", 0.90)
 
 uploaded_file = st.file_uploader(
     "Déposer un fichier binaire (PE, EXE, DLL…)",
-    type="exe,dll,pe",
+    type=None,
     help="Converti en image niveaux de gris puis classifié par le modèle.",
 )
 
