@@ -1,146 +1,182 @@
 """
-pages/1_Home.py — Page principale : upload, scan, résultats, métriques.
+pages/1_Home.py — Accueil : logo centré, scan multi-fichiers, aperçu.
 """
 
-import sys
-import time
+import sys, time
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
-# ── Chemins ───────────────────────────────────────────────────────────────────
 MALVIZ_DIR = Path(__file__).resolve().parent.parent
-ROOT_DIR   = MALVIZ_DIR.parent
-for p in [str(MALVIZ_DIR), str(ROOT_DIR)]:
+for p in [str(MALVIZ_DIR), str(MALVIZ_DIR.parent)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from utils.config_manager import load_config, get_colors
-from utils.csv_manager import append_scan, load_history, get_stats
-from utils.charts import pie_chart_results, gauge_confidence
+from utils.config_manager import load_config
+from utils.csv_manager    import append_scan, load_history, get_stats
+from utils.charts         import donut_results, gauge_confidence
+from utils.ui_helpers     import inject_css, page_title, PRIMARY, SECONDARY, MALWARE, BENIGN, UNCERTAIN
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="malviz", layout="wide")
+inject_css()
 
-colors = get_colors()
-
-# ── Minimal CSS — uniquement pour les métriques et la bannière de résultat ────
-st.markdown(f"""
-<style>
-[data-testid="metric-container"] {{
-    background: rgba(0,93,161,0.12);
-    border: 1px solid rgba(0,93,161,0.35);
-    border-radius: 10px;
-    padding: 14px 18px;
-}}
-[data-testid="metric-container"] label {{
-    color: {colors['secondary']} !important;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}}
-[data-testid="metric-container"] [data-testid="metric-value"] {{
-    color: #fff !important;
-    font-size: 1.9rem;
-    font-weight: 700;
-}}
-</style>
-""", unsafe_allow_html=True)
-
-# ── En-tête ───────────────────────────────────────────────────────────────────
 logo_path = MALVIZ_DIR / "assets" / "logo.png"
-if logo_path.exists():
-    st.image(str(logo_path), width=72)
 
-st.markdown(f"<h1 style='color:{colors['primary']};margin-bottom:0'>malviz</h1>", unsafe_allow_html=True)
-st.caption("Détection de malware par visualisation de fichiers binaires — ResNet-18 / ONNX")
+_, hero, _ = st.columns([1, 2, 1])
+with hero:
+    st.markdown(
+        f"""
+        <div style="text-align:center;margin-top:10px">
+          <h1 style="color:{PRIMARY};font-size:2.6rem;margin-bottom:4px;letter-spacing:.04em">
+            malviz
+          </h1>
+          <p style="color:{SECONDARY};font-size:1.05rem;margin-bottom:6px">
+            Bienvenue dans votre scanner de malware
+          </p>
+          <p style="color:#8B949E;font-size:0.88rem;line-height:1.7">
+            Déposez un ou plusieurs fichiers binaires Windows ci-dessous.<br>
+            Le modèle ResNet-18 les analyse par visualisation de l'image des octets.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.write("")
 st.divider()
 
-# ── Métriques globales ────────────────────────────────────────────────────────
-df_history = load_history()
-stats      = get_stats(df_history)
-
-c1, c2, c3 = st.columns(3)
-c1.metric("Total scans",      stats["total"])
-c2.metric("Malware détectés", stats["malware"])
-c3.metric("Taux d'infection", f"{stats['infection_rate']} %")
-
-st.divider()
-
-# ── Upload ────────────────────────────────────────────────────────────────────
-st.subheader("Scanner un fichier")
-
+# ── Upload multi-fichiers ─────────────────────────────────────────────────────
 config    = load_config()
 threshold = config.get("confidence_threshold", 0.90)
 
-uploaded_file = st.file_uploader(
-    "Déposer un fichier binaire (PE, EXE, DLL…)",
-    type=None,
-    help="Converti en image niveaux de gris puis classifié par le modèle.",
+st.subheader("Scanner des fichiers")
+
+uploaded_files = st.file_uploader(
+    "Fichiers binaires Windows",
+    type=["exe", "dll", "sys", "scr", "drv"],
+    accept_multiple_files=True,
+    help="Formats acceptés : EXE, DLL, SYS, SCR, DRV — analyse statique uniquement, aucun fichier n'est exécuté.",
 )
 
-scan_button = st.button("Lancer le scan", type="primary", disabled=(uploaded_file is None))
+n = len(uploaded_files) if uploaded_files else 0
+label = f"Scanner {n} fichier{'s' if n > 1 else ''}" if n > 0 else "Scanner"
+scan_btn = st.button(label, type="primary", disabled=(n == 0))
 
-if scan_button and uploaded_file is not None:
-    tmp_path = MALVIZ_DIR / "data" / uploaded_file.name
-    tmp_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path.write_bytes(uploaded_file.read())
+if scan_btn and n > 0:
+    st.divider()
+    st.subheader(f"Résultats — {n} fichier{'s' if n > 1 else ''}")
 
-    with st.spinner("Analyse en cours..."):
+    try:
+        from scanner import scan_file
+    except Exception as e:
+        st.error(f"Impossible de charger le scanner : {e}")
+        st.stop()
+
+    # Tableau de résultats
+    rows = []
+    tmp_dir = MALVIZ_DIR / "data" / "tmp_uploads"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    progress = st.progress(0, text="Initialisation…")
+
+    for i, f in enumerate(uploaded_files):
+        progress.progress((i) / n, text=f"Analyse de {f.name}…")
+
+        tmp = tmp_dir / f.name
+        tmp.write_bytes(f.read())
+
         try:
-            from scanner import scan_file
-
-            start   = time.time()
-            result  = scan_file(str(tmp_path), threshold=threshold)
-            elapsed = time.time() - start
+            t0      = time.time()
+            result  = scan_file(str(tmp), threshold=threshold)
+            elapsed = time.time() - t0
 
             append_scan(
-                filename=uploaded_file.name,
+                filename=f.name,
                 prediction=result["prediction"],
                 confidence=result["confidence"],
                 scan_time=elapsed,
             )
 
-            st.subheader("Résultat")
-
-            # Bannière de résultat
-            if result["result"] == "benign":
-                st.success(f"BENIGN — {result['prediction']} — aucune menace détectée.")
-            elif result["result"] == "malware":
-                st.error(f"MALWARE — {result['prediction']}")
-            else:
-                st.warning(f"INCERTAIN — {result['prediction']} — confiance insuffisante ({result['confidence']*100:.1f} %)")
-
-            # Métriques + jauge côte à côte
-            col_metrics, col_gauge = st.columns([2, 1])
-
-            with col_metrics:
-                m1, m2 = st.columns(2)
-                m1.metric("Classe détectée", result["prediction"])
-                m2.metric("Confiance",       f"{result['confidence'] * 100:.1f} %")
-                m3, m4 = st.columns(2)
-                m3.metric("Résultat",        result["result"].upper())
-                m4.metric("Temps d'analyse", f"{elapsed:.2f} s")
-
-            with col_gauge:
-                fig_gauge = gauge_confidence(result["confidence"], result["prediction"], colors)
-                st.plotly_chart(fig_gauge, width="stretch")
+            rows.append({
+                "Fichier":    f.name,
+                "Verdict":    result["result"].upper(),
+                "Famille":    result["prediction"],
+                "Confiance":  f"{result['confidence']*100:.1f} %",
+                "Durée (s)":  f"{elapsed:.2f}",
+                "_result":    result["result"],   # colonne interne pour la couleur
+            })
 
         except Exception as e:
-            st.error(f"Erreur lors du scan : {e}")
-            st.code(f"sys.path[:3] = {sys.path[:3]}", language="python")
+            rows.append({
+                "Fichier":   f.name,
+                "Verdict":   "ERREUR",
+                "Famille":   str(e),
+                "Confiance": "—",
+                "Durée (s)": "—",
+                "_result":   "error",
+            })
         finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+            if tmp.exists():
+                tmp.unlink()
+
+    progress.progress(1.0, text="Terminé.")
+
+    # ── Résumé rapide ────────────────────────────────────────────────────────
+    nb_mal  = sum(1 for r in rows if r["_result"] == "malware")
+    nb_ben  = sum(1 for r in rows if r["_result"] == "benign")
+    nb_unc  = sum(1 for r in rows if r["_result"] == "uncertain")
+    nb_err  = sum(1 for r in rows if r["_result"] == "error")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Malware",   nb_mal)
+    c2.metric("Benign",    nb_ben)
+    c3.metric("Incertain", nb_unc)
+    c4.metric("Erreurs",   nb_err)
+
+    st.write("")
+
+    # ── Tableau des résultats ────────────────────────────────────────────────
+    df_results = pd.DataFrame(rows).drop(columns=["_result"])
+    st.dataframe(df_results, width="stretch", hide_index=True)
+
+    # ── Bannières individuelles pour chaque fichier ──────────────────────────
+    st.write("")
+    for r in rows:
+        res = r["_result"] if "_result" in r else "error"
+        if res == "benign":
+            st.success(f"BENIGN — {r['Fichier']} — {r['Famille']} ({r['Confiance']})")
+        elif res == "malware":
+            st.error(f"MALWARE — {r['Fichier']} — {r['Famille']} ({r['Confiance']})")
+        elif res == "uncertain":
+            st.warning(f"INCERTAIN — {r['Fichier']} — {r['Famille']} ({r['Confiance']})")
+        else:
+            st.error(f"ERREUR — {r['Fichier']} — {r['Famille']}")
+
+    # Jauge uniquement si un seul fichier scanné
+    if n == 1 and rows and rows[0]["_result"] in ("benign", "malware", "uncertain"):
+        conf_val = float(rows[0]["Confiance"].replace(" %", "")) / 100
+        st.plotly_chart(
+            gauge_confidence(conf_val, rows[0]["Famille"]),
+            width="stretch",
+        )
 
 st.divider()
 
-# ── Graphique historique ──────────────────────────────────────────────────────
-st.subheader("Aperçu de l'historique")
-df_history = load_history()
+# ── Aperçu global ─────────────────────────────────────────────────────────────
+st.subheader("Aperçu global")
 
-if df_history.empty:
-    st.info("Aucun scan enregistré. Lancez votre premier scan ci-dessus.")
+df      = load_history()
+stats   = get_stats(df)
+
+g1, g2, g3 = st.columns(3)
+g1.metric("Total scans",      stats["total"])
+g2.metric("Malware détectés", stats["malware"])
+g3.metric("Taux d'infection", f"{stats['infection_rate']} %")
+
+st.write("")
+
+if df.empty:
+    st.info("Aucun scan enregistré pour l'instant.")
 else:
-    fig = pie_chart_results(df_history, colors)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(donut_results(df), width="stretch")

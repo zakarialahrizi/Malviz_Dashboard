@@ -1,2 +1,7 @@
 timestamp,filename,prediction,confidence,scan_time
-2026-05-28 18:39:46,TP_Recherche_Dichotomique.ipynb,Benign,0.9998,0.449
+2026-05-30 20:47:00,installer_.exe,Lolyda.AA3,0.8669,0.977
+2026-05-30 20:47:02,Messenger.215.4.0.14.211.exe,Lolyda.AA3,0.7397,1.828
+2026-05-30 20:50:24,UserBenchmarkInstaller.exe,Benign,0.9999,0.369
+2026-05-30 20:50:28,UserBenchmarkInstaller.exe,Benign,0.9999,0.317
+2026-05-30 20:50:35,UserBenchmarkInstaller.exe,Benign,0.9999,0.26
+2026-05-30 20:50:36,python-3.7.3-amd64.exe,Lolyda.AA3,0.9997,0.519
