@@ -64,7 +64,12 @@ st.download_button(
     file_name="scan_history_export.csv",
     mime="text/csv",
 )
-
+if st.button("Effacer l'historique", type="secondary"):
+    from utils.csv_manager import CSV_PATH, ensure_csv_exists
+    CSV_PATH.unlink(missing_ok=True)
+    ensure_csv_exists()
+    st.success("Historique effacé.")
+    st.rerun()
 st.divider()
 
 # ── Graphiques — ligne 1 ───────────────────────────────────────────────────────
